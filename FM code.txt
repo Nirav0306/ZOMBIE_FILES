@@ -1,0 +1,682 @@
+FUNCTION zrsax_biw_get_data_orgmgr1_2.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(I_REQUNR) TYPE  SBIWA_S_INTERFACE-ISOURCE OPTIONAL
+*"     REFERENCE(I_DSOURCE) TYPE  SRSC_S_IF_SIMPLE-REQUNR
+*"     REFERENCE(I_MAXSIZE) TYPE  SRSC_S_IF_SIMPLE-MAXSIZE DEFAULT 1000
+*"     REFERENCE(I_INITFLAG) TYPE  SRSC_S_IF_SIMPLE-INITFLAG OPTIONAL
+*"     REFERENCE(I_READ_ONLY) TYPE  SRSC_S_IF_SIMPLE-READONLY OPTIONAL
+*"     REFERENCE(I_REMOTE_CALL) TYPE  SBIWA_FLAG DEFAULT
+*"       SBIWA_C_FLAG_OFF
+*"  TABLES
+*"      I_T_SELECT TYPE  SRSC_S_IF_SIMPLE-T_SELECT OPTIONAL
+*"      I_T_FIELDS TYPE  SRSC_S_IF_SIMPLE-T_FIELDS OPTIONAL
+*"      E_T_ZEMPMGRID STRUCTURE  ZEMPMGRID OPTIONAL
+*"----------------------------------------------------------------------
+
+*---------------------------------------------------------------------*
+* INSERT   HD1K900059                                                  1
+*---------------------------------------------------------------------*
+* Transport   Date         Change Request     Requester
+* ----------- ------------ ------------------ -----------------------
+* HD1K902754  12-APR-2017  C3181076           Kathy McDune
+*
+* HD1K904029  08-FEB-2021  C3197450           Kathy McDune
+*           Add Belfast and Casablanca Manager Personnel Subareas
+*
+* HD1K904504  08-JUL-2022  SCTASK0014889      Randi Lindquist
+*        Modify All Selection Dates from 12319999 to Effective Dates
+*---------------------------------------------------------------------*
+
+* Example: DataSource for table SFLIGHT
+
+* Auxiliary Selection criteria structure
+  DATA: i_s_select TYPE srsc_s_select.
+  DATA: temppos LIKE hrp1001-objid,
+        temporg LIKE hrp1001-varyf,
+        tempper LIKE hrp1001-objid,
+        msobid  LIKE hrp1001-sobid.
+
+  DATA: BEGIN OF s_exec,
+          eobjid TYPE hrp1008-objid,
+          ebegda TYPE hrp1008-begda,
+          eendda TYPE hrp1008-endda,
+          eotype TYPE hrp1008-otype,
+          ebtrtl TYPE hrp1008-btrtl,
+        END OF s_exec.
+
+  DATA: BEGIN OF s_allemp,
+          mbegda   TYPE hrp1001-begda,        " Beginning Date
+          mendda   TYPE hrp1001-endda,        " End Date
+          mobjid   TYPE hrp1001-objid,        " Position
+          mvarye   TYPE hrp1001-varyf,        " Org Unit
+          msobid   TYPE hrp1001-sobid,        " PERRN Position
+*          mbtrtl   TYPE hrp1001-btrtl,        " Area
+     mbtrtl   TYPE btrtl,
+          mitxnr   TYPE hrp1001-itxnr,        " Manager Position
+          madatanr TYPE hrp1001-adatanr,      " Manager Position
+          motjid   TYPE hrp1001-otjid,        " PERRN Position
+        END OF s_allemp.
+
+  DATA: BEGIN OF s_empall,
+          mbegda   TYPE hrp1001-begda,
+          mendda   TYPE hrp1001-endda,
+          mobjid   TYPE hrp1001-objid,
+          mvarye   TYPE hrp1001-varyf,
+          msobid   TYPE hrp1001-sobid,
+*          mbtrtl   TYPE hrp1001-btrtl,
+    mbtrtl   TYPE btrtl,
+          mitxnr   TYPE hrp1001-itxnr,
+          madatanr TYPE hrp1001-adatanr,
+          motjid   TYPE hrp1001-otjid,
+          m_sobid  TYPE hrp1001-varyf,
+        END OF s_empall.
+
+* C3181076 Added Manager Levels 6 & 7 start
+  DATA: BEGIN OF s_changes,
+          mbegda      TYPE hrp1001-begda,        " Beginning Date
+          mendda      TYPE hrp1001-endda,        " End Date
+          mobjid      TYPE hrp1001-objid,        " Position
+          mvarye      TYPE hrp1001-varyf,        " Org Unit
+          msobid      TYPE hrp1001-sobid,        " PERRN Position
+*          mbtrtl      TYPE hrp1001-btrtl,        " Area
+    mbtrtl      TYPE btrtl,
+          mitxnr      TYPE hrp1001-itxnr,        " Manager Position
+          madatanr    TYPE hrp1001-adatanr,      " Manager
+          motjid      TYPE hrp1001-otjid,        " PERRN Position
+          mmgrl2      TYPE hrp1001-objid,        " 2nd Lvl Manager
+*          mmgrl2btrtl TYPE hrp1001-btrtl,       " Personnel Area
+    mmgrl2btrtl TYPE btrtl,
+          mmgrl3      TYPE hrp1001-objid,        " 3rd Lvl Manager
+*          mmgrl3btrtl TYPE hrp1001-btrtl,
+     mmgrl3btrtl      TYPE btrtl,
+          mmgrl4      TYPE hrp1001-objid,        " 4th Lvl Manager
+*          mmgrl4btrtl TYPE hrp1001-btrtl,
+   mmgrl4btrtl      TYPE btrtl,
+          mmgrl5      TYPE hrp1001-objid,        " 5th Lvl Manager
+*          mmgrl5btrtl TYPE hrp1001-btrtl,
+    mmgrl5btrtl      TYPE btrtl,
+          mmgrl6      TYPE hrp1001-objid,        " 6th Lvl Manager
+*          mmgrl6btrtl TYPE hrp1001-btrtl,
+    mmgrl6btrtl      TYPE btrtl,
+          mmgrl7      TYPE hrp1001-objid,        " 7th Lvl Manager
+*          mmgrl7btrtl TYPE hrp1001-btrtl,
+    mmgrl7btrtl      TYPE btrtl,
+          mkostl      TYPE pa0001-kostl,         " Employee Cost Center
+          msname      TYPE pa0001-sname,         " Employee Name
+          muserid(30) TYPE c,                   " Employee User Id
+        END OF s_changes.
+
+* C3181076 Added Manager Levels 6 & 7 End
+
+  DATA: BEGIN OF s_hana,
+          mbegda      TYPE pa0001-begda,         " Beginning Date
+          mendda      TYPE pa0001-endda,         " End Date
+          mpernr      TYPE pa0001-pernr,         " Person
+          mkostl      TYPE pa0001-kostl,         " Cost Center
+          msname      TYPE pa0001-sname,         " Name
+          muserid(30) TYPE c,                   " User Id
+        END OF s_hana.
+
+ data: begin of s_lookup,
+   objid type hrp1008-objid,
+   begda type hrp1008-begda,
+   endda type hrp1008-endda,
+   btrtl type hrp1008-btrtl,
+   end of s_lookup.
+
+
+  DATA: BEGIN OF c_cursor,
+          begda TYPE hrp1001-begda,        " Beginning Date
+          endda TYPE hrp1001-endda,        " End Date
+          objid TYPE hrp1001-objid,        " PERRN Position
+          varyf TYPE hrp1001-varyf,        " Org Unit
+          sobid TYPE hrp1001-sobid,        " PERRN
+*          btrtl TYPE hrp1001-btrtl,        " Sub Area
+     btrtl TYPE btrtl,
+          itxnr TYPE hrp1001-itxnr,        " Manager Position
+*-----------missing 117 to 125 line---------------------------------------------------
+    ADATANR type hrp1001-ADATANR,
+    otjid type hrp1001-otjid,
+        END OF c_cursor.
+
+  DATA: i_excep    LIKE TABLE OF s_empall,
+        i_managers LIKE TABLE OF s_allemp,
+        i_hana     LIKE TABLE OF s_hana,
+        mc_sobid   TYPE hrp1001-sobid,
+        i_lookup  like TABLE OF s_lookup,
+        i_cursor like table of c_cursor,
+        i_empall like table of s_empall.
+
+  DATA: BEGIN OF s_empmgr,
+          mbegda TYPE hrp1001-begda,
+          mendda TYPE hrp1001-endda,
+          mper   TYPE hrp1001-objid,
+          mpos   TYPE hrp1001-sobid,
+          morg   TYPE hrp1001-sobid,
+          mgrorg TYPE hrp1001-sobid,
+          mgrper TYPE hrp1001-sobid,
+        END OF s_empmgr.
+
+  DATA: BEGIN OF s_mgrtest,
+          mpernr TYPE hrp1001-objid,
+          mbegda TYPE hrp1001-begda,
+          mendda TYPE hrp1001-endda,
+          mpos   TYPE hrp1001-sobid,
+          mgrorg TYPE hrp1001-sobid,
+        END OF s_mgrtest.
+
+  DATA: BEGIN OF s_testmgr,
+          mpernr TYPE hrp1001-objid,
+          mbegda TYPE hrp1001-begda,
+          mendda TYPE hrp1001-endda,
+          mpos   TYPE hrp1001-objid,
+          mgrorg TYPE hrp1001-objid,
+          mvaryf TYPE hrp1001-varyf,
+        END OF s_testmgr.
+
+  DATA: BEGIN OF s_mgrmgr,
+          mbegda TYPE hrp1001-begda,
+          mendda TYPE hrp1001-endda,
+          mper   TYPE hrp1001-objid,
+          mpos   TYPE hrp1001-sobid,
+          morg   TYPE hrp1001-sobid,
+          mgrpos TYPE hrp1001-sobid,
+          mgrper TYPE hrp1001-sobid,
+        END OF s_mgrmgr.
+
+  DATA: BEGIN OF s_empmgr_mgrexec,
+          mbegda   TYPE hrp1001-begda,
+          mendda   TYPE hrp1001-endda,
+          mper     TYPE hrp1001-objid,
+          mpos     TYPE hrp1001-sobid,
+*------------168 LINE MISSING-------------------
+          mgrpos   TYPE hrp1001-sobid,
+          mgrper   TYPE hrp1001-sobid,
+          m2ndmgr  TYPE hrp1001-sobid,
+          m1stexec TYPE hrp1001-sobid,
+        END OF s_empmgr_mgrexec.
+
+  DATA: BEGIN OF s_b002,
+          mbegda TYPE hrp1001-begda,
+          mendda TYPE hrp1001-endda,
+          mper   TYPE hrp1001-objid,
+          mpos   TYPE hrp1001-sobid,
+          morg   TYPE hrp1001-sobid,
+          motjid TYPE hrp1001-otjid,
+        END OF s_b002.
+
+  DATA: BEGIN OF s_a012,
+          mgrpos TYPE hrp1001-objid,
+          motjid TYPE hrp1001-otjid,
+        END OF s_a012.
+
+  DATA: BEGIN OF s_b008,
+          mgrper TYPE hrp1001-objid,
+          motjid TYPE hrp1001-otjid,
+        END OF s_b008.
+
+  DATA: i_empmgr_mgrexc LIKE TABLE OF s_empmgr_mgrexec.
+  DATA: i_mgrmgr        LIKE TABLE OF s_mgrmgr.
+  DATA: i_exec          LIKE TABLE OF s_empmgr.
+  DATA: i_empmgr         LIKE TABLE OF s_empmgr.
+  DATA: mobjid          TYPE hrp1001-objid.
+  DATA: i_mgrtest       LIKE TABLE OF s_mgrtest.
+  DATA: i_testmgr       LIKE TABLE OF s_testmgr.
+  DATA: mseq(4)         TYPE n.
+  DATA: ismgr(1)        TYPE c.
+  DATA: mr_exec_found(1) TYPE c.
+  DATA: mnextorg        TYPE hrp1001-varyf.
+  DATA: mcx             TYPE n.
+  DATA: mvaryf(10)      TYPE c VALUE space.
+  DATA: idx             TYPE n VALUE 0.
+  DATA: mgrfound        VALUE 'N'.
+  DATA: mperson(8)      TYPE c.
+
+* SCTASK0014888
+  DATA: wf_sysdate LIKE sy-datum.
+
+  wf_sysdate = sy-datum.
+* SCTASK0014888
+
+* Maximum number of lines for DB table
+  STATICS: s_s_if              TYPE srsc_s_if_simple,
+           s_counter_datapakid LIKE sy-tabix,
+           s_cursor            TYPE cursor.
+
+* Initialization mode (first call by SAPI) or data transfer mode
+* (following calls)?
+  IF i_initflag = sbiwa_c_flag_on.
+* Check DataSource validity
+    CASE i_dsource.
+      WHEN 'ZEMPMGR_ATTR'.
+      WHEN OTHERS.
+        IF 1 = 2. MESSAGE e009(r3).
+         ENDIF.
+* this is a typical log call. Please write every error message like this
+*        log_write 'E'                 "message type
+*                  'R3'               "message class
+*                  '009'              "message number
+*                   i_dsource         "message variable 1
+*                   ' '.              "message variable 2
+*
+*        RAISE error_passed_to_mess_handler.
+    ENDCASE.
+
+    APPEND LINES OF i_t_select TO s_s_if-t_select.
+
+* Fill parameter buffer for data extraction calls
+    s_s_if-requnr   = i_requnr.
+    s_s_if-dsource  = i_dsource.
+    IF i_maxsize = ''.
+*      i_maxsize = '1000'.
+    ENDIF.
+    s_s_if-maxsize  = i_maxsize.
+    s_s_if-maxsize  = 1000.
+    APPEND LINES OF i_t_fields TO s_s_if-t_fields.
+  ELSE.               "Initialization mode or data extraction?
+
+* FIRST DATA PACKAGE -> OPEN CURSOR
+    IF s_counter_datapakid = 0.
+
+* Table contain the Manager, Position and Org Unit for all employees
+
+      OPEN CURSOR WITH HOLD s_cursor FOR
+      SELECT DISTINCT b~begda b~endda a~objid a~varyf b~sobid c~btrtl a~itxnr a~adatanr a~otjid
+        FROM hrp1001 AS a
+        INNER JOIN hrp1001 AS b ON a~objid = b~objid AND
+                                   b~subty = 'A008' AND
+                                   b~sclas = 'P' AND
+                                   b~begda <= wf_sysdate AND          "SCTASK0014888
+                                   b~endda => wf_sysdate AND          "SCTASK0014888
+                                   b~endda = '99991231' AND           "SCTASK0014888
+                                   b~sobid = '09014622'               "SCTASK0014888
+
+        INNER JOIN hrp1008 AS c ON a~objid = c~objid
+       WHERE a~subty = 'A003' AND
+             a~sclas = 'O' AND
+             a~begda <= wf_sysdate AND                               "SCTASK0014888
+             a~endda => wf_sysdate                                "SCTASK0014888
+*              a~ENDDA = '99991231'
+*             a~SOBID in ('100007587', '100006279','10007146','10001296') "SCTASK0014888
+         %_HINTS ORACLE 'INDEX("&TABLE&" "HRP1001~2" "HRP1001^2")'.
+    ENDIF.
+
+    SELECT objid begda endda btrtl
+      INTO TABLE i_lookup
+      FROM hrp1008
+      WHERE btrtl IN ('7100','7200','8000','8100','2001','2002','2003','2012','2013','2511','2512','7001',
+      '7002','7003','7011','2501','4001','4002','4003','4012','9001','9002','9003','9012')
+      AND begda <= wf_sysdate
+      AND endda => wf_sysdate.
+*  AND ENDDA = '99991231'.
+    SORT i_lookup BY objid.
+
+    SELECT  a~begda a~endda a~pernr a~kostl a~sname b~usrid
+      FROM pa0001 AS a
+      LEFT OUTER JOIN pa0105 AS b ON a~pernr = b~pernr AND
+                                     b~usrty = '0001'
+      INTO TABLE i_hana
+      WHERE a~begda <= wf_sysdate AND
+      a~endda => wf_sysdate.
+*   a~ENDDA = '99991231'
+
+* FETCH RECORDS INTO INTERFACE TABLE.
+* named E_T_'Name of extract structure'.
+    FETCH NEXT CURSOR s_cursor
+      APPENDING CORRESPONDING FIELDS
+      OF TABLE i_cursor
+      PACKAGE SIZE 1000.
+
+    LOOP AT i_cursor INTO c_cursor.
+      CLEAR: s_empall.
+      s_empall-mbegda     = c_cursor-begda.
+      s_empall-mendda     = c_cursor-endda.
+      s_empall-mobjid     = c_cursor-objid.
+      s_empall-mvarye     = c_cursor-varyf.
+      s_empall-msobid     = c_cursor-sobid(8).   " SOBID is C45 to load that into C8, the substring is used
+      s_empall-mbtrtl     = c_cursor-btrtl.
+      s_empall-mitxnr     = c_cursor-itxnr.
+      s_empall-madatanr   = c_cursor-ADATANR.
+      s_empall-motjid     = c_cursor-otjid.
+      CONCATENATE 'P' s_empall-msobid INTO s_empall-m_sobid RESPECTING BLANKS.
+      APPEND s_empall TO i_empall.
+    ENDLOOP.
+
+    FREE E_T_ZEMPMGRID[].
+    ismgr = 'N'.
+
+**********************************************************************
+* Decide who are all Managers (Position, Person ID)
+**********************************************************************
+    SELECT a~objid a~begda a~endda a~sobid b~sobid
+      FROM hrp1001 AS a
+      INNER JOIN hrp1001 AS b ON b~otjid = a~varyf AND
+      b~subty = 'A012' AND
+*        a~subty = 'A012' AND                   " Manages
+        b~sclas = 'O' AND
+          b~begda <= wf_sysdate AND                      "SCTASK0014888
+          b~endda => wf_sysdate                     "SCTASK0014888
+*            B~ENDDA = '99991231'                           "SCTASK0014888
+        INTO TABLE i_mgrtest
+        FOR ALL ENTRIES IN i_empall
+        WHERE a~otjid = i_empall-m_sobid AND
+              a~subty = 'B008' AND
+              a~plvar = '01' AND                     " Holder
+              a~begda <= wf_sysdate AND              "SCTASK0014888
+              a~endda => wf_sysdate              "SCTASK0014888
+*        A~ENDDA = '99991231'.                  "SCTASK0014888
+        %_HINTS ORACLE 'INDEX("&TABLE&" "HRP1001~2" "HRP1001^2")'.
+
+    IF sy-subrc = 0.
+      ismgr = 'Y'.
+      LOOP AT i_mgrtest INTO s_mgrtest.
+        s_testmgr-mpernr   = s_mgrtest-mpernr.
+        s_testmgr-mbegda   = s_mgrtest-mbegda.
+        s_testmgr-mendda   = s_mgrtest-mendda.
+        s_testmgr-mpos     = s_mgrtest-mpos.        " SOBID is C45 and mPOS is defined as C8, so substring it
+        s_testmgr-mgrorg     = s_mgrtest-mgrorg.           " Same as above
+        CONCATENATE 'S' s_testmgr-mpos INTO s_testmgr-mvaryf RESPECTING BLANKS.
+        APPEND s_testmgr TO i_testmgr.
+      ENDLOOP.
+    ENDIF.
+
+*************************************************************
+* Get all Manager's Manager
+*************************************************************
+    IF ismgr = 'Y'.
+      SELECT DISTINCT a~begda a~endda a~objid a~sobid b~sobid c~sobid d~sobid
+        FROM hrp1001 AS a
+        INNER JOIN hrp1001 AS b ON b~otjid = a~varyf
+                                AND b~subty = 'A002' AND
+                                b~plvar = '01' AND
+                                b~begda <= wf_sysdate AND               "SCTASK0014888
+                                b~endda => wf_sysdate                   "SCTASK0014888
+*                              B~ENDDA = '99991231'
+*
+        INNER JOIN hrp1001 AS c ON c~otjid = b~varyf
+                                AND c~subty = 'B012' AND
+                                c~plvar = '01' AND
+                                c~begda <= wf_sysdate AND               "SCTASK0014888
+                                c~endda => wf_sysdate
+*                              C~ENDDA = '99991231'
+*
+        INNER JOIN hrp1001 AS d ON d~otjid = c~varyf
+                           AND d~subty = 'A008'       AND
+                           d~plvar = '01'             AND
+                           d~begda <= wf_sysdate      AND
+                           d~endda >= wf_sysdate      "SCTASK0014888
+*                         AND D-ENDDA = '99991231'   "SCTASK0014888
+
+    INTO TABLE i_mgrmgr
+    FOR ALL ENTRIES IN i_testmgr
+    WHERE a~otjid = i_testmgr-mvaryf AND
+          a~subty = 'A012'           AND
+          a~sclas = 'O'              AND
+          a~begda <= wf_sysdate      AND
+          a~endda >= wf_sysdate
+*        A-ENDDA = '99991231'.      "SCTASK0014888
+   %_HINTS ORACLE 'INDEX("TABLE" "HRP1001-2" "HRP1001^2")'.
+      SORT i_mgrmgr BY mper ASCENDING.
+    ENDIF.
+
+**********************************************************
+* Get Every Employee's (who are not Managers) Manager    *
+**********************************************************
+
+    SELECT DISTINCT a~begda a~endda a~objid a~sobid c~sobid d~sobid
+      FROM hrp1001 AS a
+      INNER JOIN hrp1001 AS b ON b~otjid = a~varyf           " index exists
+                              AND b~subty = 'A003'           AND
+                                  b~plvar = '01'             AND
+
+                                  b~begda <= wf_sysdate      AND
+                                  b~endda >= wf_sysdate      "SCTASK0014888
+*                            AND B-ENDDA = '99991231'       "SCTASK0014888
+      INNER JOIN hrp1001 AS c ON c~otjid = b~varyf           " index exists
+                              AND c~subty = 'B012'           AND
+                                  c~plvar = '01'             AND
+                                  c~begda <= wf_sysdate      AND
+                                  c~endda >= wf_sysdate      "SCTASK0014888
+*                            AND C-ENDDA = '99991231'       "SCTASK0014888
+      INNER JOIN hrp1001 AS d ON d~otjid = c~varyf           " index exists
+                              AND d~subty = 'A008'           AND
+                                  d~plvar = '01'             AND
+                                  d~begda <= wf_sysdate      AND
+                                  d~endda >= wf_sysdate      "SCTASK0014888
+*                            AND D-ENDDA = '99991231'       "SCTASK0014888
+
+      INTO TABLE i_empmgr
+      FOR ALL ENTRIES IN i_empall
+      WHERE a~otjid = i_empall-m_sobid AND
+            a~subty = 'B008' AND
+            a~plvar = '01'   AND
+            a~begda <= wf_sysdate AND
+            a~endda >= wf_sysdate
+*          A-ENDDA = '99991231'.    "SCTASK0014888
+
+   %_HINTS ORACLE 'INDEX("TABLE" "HRP1001-2" "HRP1001^2")'.
+    SORT i_empmgr BY mper ASCENDING.
+****************************************************
+* Fillout the missing columns in i_allemp with Manager info
+****************************************************
+    LOOP AT i_empall INTO s_empall.
+      READ TABLE i_empmgr WITH KEY mper = s_empall-msobid
+         INTO s_empmgr.
+      IF sy-subrc = 0.
+        s_empall-madatanr = s_empmgr-mgrper.
+        s_empall-mitxnr   = s_empmgr-mpos.
+        MODIFY i_empall FROM s_empall.
+      ENDIF.
+      CLEAR: s_empall.
+    ENDLOOP.
+
+****************************************************
+* Fillout the missing columns in i_allemp with Manager info
+****************************************************
+
+    IF ismgr = 'Y'.
+      LOOP AT i_empall INTO s_empall.
+        READ TABLE i_mgrmgr WITH KEY mper = s_empall-mobjid
+           INTO s_mgrmgr.
+        IF sy-subrc = 0.
+          s_empall-madatanr = s_mgrmgr-mgrper.
+          s_empall-mitxnr   = s_mgrmgr-mpos.
+          MODIFY i_empall FROM s_empall.
+        ENDIF.
+        CLEAR: s_empall.
+
+      ENDLOOP.
+    ENDIF.
+
+    CLEAR: i_mgrmgr.
+    LOOP AT i_empall INTO s_empall.
+      IF s_empall-msobid(8) = s_empall-madatanr(8).
+        MOVE space TO s_empall-madatanr.
+        MODIFY i_empall FROM s_empall.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT i_empall INTO s_empall.
+      MOVE-CORRESPONDING s_empall TO s_allemp.
+      CLEAR s_empall.
+      s_empall-mbegda = s_allemp-mbegda.
+      s_empall-mendda = s_allemp-mendda.
+      s_empall-mobjid = s_allemp-mobjid.
+      s_empall-mvarye = s_allemp-mvarye.
+      s_empall-msobid = s_allemp-msobid(8).
+      s_empall-mbtrtl = s_allemp-mbtrtl.
+      s_empall-mitxnr = s_allemp-mitxnr.
+      s_empall-madatanr = s_allemp-madatanr.
+      s_empall-motjid = s_allemp-motjid.
+*  ENDLOOP.
+
+*********************************************************
+* The Manager does not exist, so loop thru to find the next level
+* Get the position and the Org Unit
+
+*********************************************************
+
+      mr_exec_found = 'N'.
+      mgrfound = 'N'.
+      CLEAR: mvaryf, mc_sobid.
+      mvaryf = s_empall-mvarye.
+      mc_sobid = s_empall-mvarye+2(8).
+      CLEAR: s_changes.
+
+      MOVE-CORRESPONDING s_allemp TO s_changes.
+
+      WHILE mgrfound = 'N'.
+        CLEAR: s_b002, s_a012, s_b008.
+        SELECT DISTINCT begda endda objid sobid sobid otjid
+          FROM hrp1001
+          INTO s_b002
+          WHERE sobid = mc_sobid AND
+                sclas = 'O'     AND
+                plvar = '01'    AND
+                subty = 'B002'  AND
+                begda <= wf_sysdate AND
+                endda >= wf_sysdate
+*            ENDDA = '99991231'.    "SCTASK0014888
+        %_HINTS ORACLE 'INDEX("TABLE*" "HRP1001-3" "HRP1001^3")'.
+        ENDSELECT.
+
+        IF sy-subrc = 0.
+          SELECT DISTINCT objid otjid
+            FROM hrp1001
+            INTO s_a012
+            WHERE sobid = s_b002-mper AND   " Find the Position for the Org Unit
+                  sclas = 'O'         AND
+                  plvar = '01'        AND
+                  subty = 'A012'      AND
+                  begda <= wf_sysdate AND
+                  endda >= wf_sysdate
+*              ENDDA = '99991231'.    "SCTASK0014888
+          %_HINTS ORACLE 'INDEX("TABLE*" "HRP1001-3" "HRP1001^3")'.
+          ENDSELECT.
+
+          IF sy-subrc = 0.
+            SELECT DISTINCT objid otjid
+              FROM hrp1001
+              INTO s_b008
+              WHERE sobid = s_a012-mgrpos AND  " Find the Person for the Position
+                    sclas = 'S'        AND
+                    plvar = '01'       AND
+                    subty = 'B008'     AND
+                    begda <= wf_sysdate AND
+                    endda >= wf_sysdate
+*                ENDDA = '99991231'.    "SCTASK0014888
+            %_HINTS ORACLE 'INDEX("TABLE*" "HRP1001-3" "HRP1001^3")'.
+            ENDSELECT.
+
+            IF sy-subrc = 0.
+              mvaryf = s_b002-motjid.
+              s_mgrmgr-mbegda = s_b002-mbegda.
+              s_mgrmgr-mendda = s_b002-mendda.
+              s_mgrmgr-mper   = s_b002-mper.
+              s_mgrmgr-mpos   = s_b002-mpos.
+              s_mgrmgr-morg   = s_b002-morg.
+              s_mgrmgr-mgrpos = s_b002-mpos.
+              s_mgrmgr-mgrper = s_b008-mgrper.
+              mobjid = s_mgrmgr-mgrpos(10).
+
+* C3181076 Added Manager Levels 6 & 7 Start
+
+              READ TABLE i_lookup WITH KEY objid = mobjid INTO s_exec BINARY SEARCH.
+              IF sy-subrc = 0.
+                IF s_changes-mmgrl2 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl2.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl2btrtl.
+                ELSEIF s_changes-mmgrl3 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl3.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl3btrtl.
+                ELSEIF s_changes-mmgrl4 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl4.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl4btrtl.
+                ELSEIF s_changes-mmgrl5 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl5.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl5btrtl.
+                ELSEIF s_changes-mmgrl6 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl6.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl6btrtl.
+
+                ELSEIF s_changes-mmgrl7 IS INITIAL.
+                  MOVE s_mgrmgr-mgrper(10) TO s_changes-mmgrl7.
+                  MOVE s_exec-ebtrtl         TO s_changes-mmgrl7btrtl.
+*                ENDIF.
+              ENDIF.
+
+* C3181076 Added Manager Levels 6 & 7 End
+
+              IF s_empall-madatanr = space.
+                s_empall-madatanr = s_mgrmgr-mgrper.
+                s_empall-mitxnr   = s_mgrmgr-mgrpos.
+             ENDIF.
+
+              CONCATENATE '0' space s_mgrmgr-mper INTO s_empall-motjid.
+              MOVE s_mgrmgr-mper TO mc_sobid.
+              MOVE-CORRESPONDING s_empall TO s_allemp.
+              MOVE-CORRESPONDING s_allemp TO s_changes.
+
+            ELSE.
+              mvaryf = s_b002-motjid.
+              mc_sobid = s_b002-mper.
+            ENDIF.
+          ELSE.
+            mgrfound = 'N'.
+            mvaryf = s_b002-motjid.
+            mc_sobid = s_b002-mper.
+          ENDIF.
+        ELSE.
+          mvaryf = s_b002-motjid.
+          mc_sobid = s_b002-mper.
+        ENDIF.
+*    IDX = IDX + 1.
+
+*Here is the transcribed text from the image:
+
+      ELSE.
+        mvaryf = s_b002-motjid.
+        mc_sobid = s_b002-mper.
+      ENDIF.
+      idx = idx + 1.
+* C3181076 Added Manager Levels 6 & 7 Start
+
+      IF idx > 6.  "original code has index greater than 6 for 5 manager level
+        IF idx > 8.
+          mgrfound = 'Y'.
+          idx = 0.
+        ENDIF.
+    ENDIF."* C3181076 Added Manager Levels 6 & 7 End
+      ENDWHILE.
+
+
+      CLEAR: mperson.
+      MOVE s_changes-msobid(8) TO mperson.
+      READ TABLE i_hana WITH KEY mpernr = mperson INTO s_hana.
+      IF sy-subrc = 0.
+        MOVE s_hana-mkostl TO s_changes-mkostl.
+        MOVE s_hana-msname TO s_changes-msname.
+        MOVE s_hana-muserid TO s_changes-muserid.
+      ELSE.
+        MOVE '000000000' TO s_changes-mkostl.
+        MOVE: space        TO s_changes-msname.
+        CLEAR: s_changes-muserid.
+      ENDIF.
+      APPEND s_changes TO E_T_ZEMPMGRID.
+      CLEAR s_changes.
+
+    ENDLOOP.
+
+    IF sy-subrc <> 0.
+      CLOSE CURSOR s_cursor.
+      RAISE no_more_data.
+    ENDIF.
+
+    s_counter_datapakid = s_counter_datapakid + 1.
+
+  ENDIF.          "Initialization mode or data extraction ?
+
+*} INSERT
+ENDFUNCTION.
